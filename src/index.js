@@ -3,7 +3,7 @@ export default {
     const url = new URL(request.url);
 
     // =========================
-    // TEST PAGE
+    // TEST
     // =========================
 
     if (request.method === "GET" && url.pathname === "/") {
@@ -11,7 +11,7 @@ export default {
     }
 
     // =========================
-    // TELEGRAM WEBHOOK
+    // WEBHOOK
     // =========================
 
     if (request.method === "POST" && url.pathname === "/webhook") {
@@ -85,7 +85,7 @@ async function handleUpdate(update, env) {
 
 
     // ==================================================
-    // /START
+    // START
     // ==================================================
 
     if (text === "/start") {
@@ -100,7 +100,7 @@ async function handleUpdate(update, env) {
 
 
     // ==================================================
-    // /HELP
+    // HELP
     // ==================================================
 
     if (text === "/help") {
@@ -145,7 +145,7 @@ Use /start to open the menu.`
           chatId,
           `🧮 Calculator
 
-${text} = ${result}`
+${text} = ${formatNumber(result)}`
         );
 
         return;
@@ -160,6 +160,7 @@ ${text} = ${result}`
 Examples:
 
 65 / 5
+65 ÷ 5
 25 × 59
 100 + 50
 100 - 35
@@ -312,7 +313,7 @@ or:
         chatId,
         `✅ Expense saved!
 
-💰 Amount: ${data.amount}
+💰 Amount: ${formatNumber(data.amount)}
 📂 Category: ${data.category}
 📝 ${data.description || "-"}`
       );
@@ -393,7 +394,7 @@ or:
 
 
     // ==================================================
-    // UNKNOWN TEXT
+    // UNKNOWN MESSAGE
     // ==================================================
 
     await sendMessage(
@@ -409,7 +410,7 @@ Use /start to open the menu.`
 
 
   // ====================================================
-  // CALLBACK / BUTTON
+  // CALLBACK QUERY / BUTTON
   // ====================================================
 
   if (update.callback_query) {
@@ -421,7 +422,7 @@ Use /start to open the menu.`
     const data = callback.data;
 
 
-    // Stop Telegram's loading animation
+    // Tell Telegram button was received
     await answerCallbackQuery(
       env,
       callbackId
@@ -444,7 +445,7 @@ Use /start to open the menu.`
 
 
     // ==================================================
-    // NOTES MENU
+    // NOTES
     // ==================================================
 
     if (data === "notes") {
@@ -525,7 +526,7 @@ Use "My Notes" first to see the ID.`
 
 
     // ==================================================
-    // EXPENSE MENU
+    // EXPENSES
     // ==================================================
 
     if (data === "expenses") {
@@ -584,7 +585,7 @@ Or:
 
 
     // ==================================================
-    // TOTAL EXPENSES
+    // TOTAL
     // ==================================================
 
     if (data === "total_expenses") {
@@ -626,7 +627,7 @@ Use "Expense History" first to see the ID.`
 
 
     // ==================================================
-    // CALCULATOR BUTTON
+    // CALCULATOR
     // ==================================================
 
     if (data === "calculator") {
@@ -639,7 +640,7 @@ Use "Expense History" first to see the ID.`
 Send a calculation like:
 
 25 × 59
-65 / 5
+65 ÷ 5
 100 + 50
 100 - 35
 (25 + 5) × 2`
@@ -1167,7 +1168,7 @@ Use:
 
   for (const expense of result.results) {
 
-    text += `#${expense.id} — ${expense.amount} ${expense.currency}\n`;
+    text += `#${expense.id} — ${formatNumber(expense.amount)} ${expense.currency}\n`;
     text += `📂 ${expense.category}\n`;
 
     if (expense.description) {
@@ -1231,7 +1232,7 @@ async function showExpenseTotal(
     chatId,
     `📊 Expense Summary
 
-Total: ${result.total} USD
+Total: ${formatNumber(result.total)} USD
 Transactions: ${result.count}`
   );
 }
@@ -1321,7 +1322,7 @@ async function getUser(
 
 
 // ======================================================
-// IS CALCULATION
+// CALCULATOR — DETECT EXPRESSION
 // ======================================================
 
 function isCalculation(text) {
@@ -1334,15 +1335,25 @@ function isCalculation(text) {
   const exp = text
     .replace(/×/g, "*")
     .replace(/÷/g, "/")
+    .replace(/−/g, "-")
     .replace(/,/g, ".")
     .trim();
 
 
-  return (
-    /[0-9]/.test(exp) &&
-    /[+\-*/]/.test(exp) &&
-    /^[0-9+\-*/().\s]+$/.test(exp)
-  );
+  // Must contain a number
+  if (!/[0-9]/.test(exp)) {
+    return false;
+  }
+
+
+  // Must contain an arithmetic operator
+  if (!/[+\-*/]/.test(exp)) {
+    return false;
+  }
+
+
+  // Only calculator characters
+  return /^[0-9+\-*/().\s]+$/.test(exp);
 }
 
 
@@ -1360,8 +1371,14 @@ function calculate(
     const exp = expression
       .replace(/×/g, "*")
       .replace(/÷/g, "/")
+      .replace(/−/g, "-")
       .replace(/,/g, ".")
       .trim();
+
+
+    if (!exp) {
+      return null;
+    }
 
 
     if (
@@ -1371,14 +1388,216 @@ function calculate(
     }
 
 
-    if (!/[0-9]/.test(exp)) {
+    // Tokenize
+    const tokens = exp.match(
+      /\d+(?:\.\d+)?|[+\-*/()]|\./g
+    );
+
+
+    if (!tokens) {
       return null;
     }
 
 
-    const result = Function(
-      `"use strict"; return (${exp})`
-    )();
+    // Make sure tokenization consumed everything
+    const rebuilt = tokens.join("");
+
+    const cleaned = exp.replace(
+      /\s+/g,
+      ""
+    );
+
+
+    if (rebuilt !== cleaned) {
+      return null;
+    }
+
+
+    let position = 0;
+
+
+    // ==============================================
+    // EXPRESSION
+    // Addition / subtraction
+    // ==============================================
+
+    function parseExpression() {
+
+      let value = parseTerm();
+
+
+      while (
+        position < tokens.length &&
+        (
+          tokens[position] === "+" ||
+          tokens[position] === "-"
+        )
+      ) {
+
+        const operator =
+          tokens[position++];
+
+
+        const right =
+          parseTerm();
+
+
+        if (operator === "+") {
+          value += right;
+        } else {
+          value -= right;
+        }
+      }
+
+
+      return value;
+    }
+
+
+    // ==============================================
+    // TERM
+    // Multiplication / division
+    // ==============================================
+
+    function parseTerm() {
+
+      let value =
+        parseFactor();
+
+
+      while (
+        position < tokens.length &&
+        (
+          tokens[position] === "*" ||
+          tokens[position] === "/"
+        )
+      ) {
+
+        const operator =
+          tokens[position++];
+
+
+        const right =
+          parseFactor();
+
+
+        if (operator === "*") {
+
+          value *= right;
+
+        } else {
+
+          if (right === 0) {
+            throw new Error(
+              "Division by zero"
+            );
+          }
+
+          value /= right;
+        }
+      }
+
+
+      return value;
+    }
+
+
+    // ==============================================
+    // FACTOR
+    // Numbers / parentheses / +/- 
+    // ==============================================
+
+    function parseFactor() {
+
+      if (
+        position >= tokens.length
+      ) {
+        throw new Error(
+          "Unexpected end"
+        );
+      }
+
+
+      const token =
+        tokens[position];
+
+
+      // Negative
+      if (token === "-") {
+
+        position++;
+
+        return -parseFactor();
+      }
+
+
+      // Positive
+      if (token === "+") {
+
+        position++;
+
+        return parseFactor();
+      }
+
+
+      // Parentheses
+      if (token === "(") {
+
+        position++;
+
+
+        const value =
+          parseExpression();
+
+
+        if (
+          position >= tokens.length ||
+          tokens[position] !== ")"
+        ) {
+          throw new Error(
+            "Missing closing parenthesis"
+          );
+        }
+
+
+        position++;
+
+
+        return value;
+      }
+
+
+      // Number
+      if (
+        /^\d+(?:\.\d+)?$/.test(token)
+      ) {
+
+        position++;
+
+        return Number(token);
+      }
+
+
+      throw new Error(
+        "Invalid expression"
+      );
+    }
+
+
+    // ==============================================
+    // CALCULATE
+    // ==============================================
+
+    const result =
+      parseExpression();
+
+
+    // All tokens must be consumed
+    if (
+      position !== tokens.length
+    ) {
+      return null;
+    }
 
 
     if (
@@ -1389,6 +1608,7 @@ function calculate(
     }
 
 
+    // Remove floating point garbage
     return Number(
       result.toFixed(10)
     );
@@ -1407,7 +1627,39 @@ function calculate(
 
 
 // ======================================================
-// SEND TELEGRAM MESSAGE
+// FORMAT NUMBER
+// ======================================================
+
+function formatNumber(
+  number
+) {
+
+  if (
+    typeof number !== "number"
+  ) {
+    number = Number(number);
+  }
+
+
+  if (
+    !Number.isFinite(number)
+  ) {
+    return "0";
+  }
+
+
+  return number.toLocaleString(
+    "en-US",
+    {
+      maximumFractionDigits: 10
+    }
+  );
+}
+
+
+
+// ======================================================
+// SEND MESSAGE
 // ======================================================
 
 async function sendMessage(
@@ -1435,7 +1687,8 @@ async function sendMessage(
   );
 
 
-  const result = await response.json();
+  const result =
+    await response.json();
 
 
   if (!result.ok) {
@@ -1477,7 +1730,8 @@ async function answerCallbackQuery(
   );
 
 
-  const result = await response.json();
+  const result =
+    await response.json();
 
 
   if (!result.ok) {
@@ -1490,4 +1744,4 @@ async function answerCallbackQuery(
 
 
   return result;
-  }
+        }
