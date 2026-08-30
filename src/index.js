@@ -1187,35 +1187,36 @@ async function getUser(
 // CALCULATOR
 // ======================================================
 
-function calculate(
-  expression
-) {
-
+function calculate(expression) {
   try {
+    if (!expression) {
+      return null;
+    }
 
+    // Convert common calculator symbols
     let exp = expression
       .replace(/×/g, "*")
       .replace(/÷/g, "/")
-      .replace(/,/g, ".");
+      .replace(/,/g, ".")
+      .trim();
 
-
-    if (
-      !/^[0-9+\-*/().\s]+$/.test(exp)
-    ) {
+    // Only allow numbers, operators, decimal points,
+    // parentheses and spaces
+    if (!/^[0-9+\-*/().\s]+$/.test(exp)) {
       return null;
     }
 
-
-    if (!exp.trim()) {
+    // Must contain at least one number
+    if (!/[0-9]/.test(exp)) {
       return null;
     }
 
-
+    // Calculate
     const result = Function(
       `"use strict"; return (${exp})`
     )();
 
-
+    // Reject invalid results
     if (
       typeof result !== "number" ||
       !Number.isFinite(result)
@@ -1223,13 +1224,11 @@ function calculate(
       return null;
     }
 
-
-    return Number(
-      result.toFixed(10)
-    );
+    // Clean floating point errors
+    return Number(result.toFixed(10));
 
   } catch (error) {
-
+    console.error("Calculator error:", error);
     return null;
   }
 }
