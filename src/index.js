@@ -3,7 +3,7 @@ export default {
     const url = new URL(request.url);
 
     // =========================
-    // TEST
+    // TEST PAGE
     // =========================
 
     if (request.method === "GET" && url.pathname === "/") {
@@ -11,7 +11,7 @@ export default {
     }
 
     // =========================
-    // WEBHOOK
+    // TELEGRAM WEBHOOK
     // =========================
 
     if (request.method === "POST" && url.pathname === "/webhook") {
@@ -44,7 +44,7 @@ export default {
 async function handleUpdate(update, env) {
 
   // ====================================================
-  // MESSAGE
+  // NORMAL MESSAGE
   // ====================================================
 
   if (update.message) {
@@ -54,7 +54,11 @@ async function handleUpdate(update, env) {
     const user = message.from;
     const text = message.text?.trim() || "";
 
-    // Save/update user
+
+    // ==================================================
+    // SAVE / UPDATE USER
+    // ==================================================
+
     await env.DB.prepare(`
       INSERT INTO users (
         telegram_id,
@@ -81,20 +85,26 @@ async function handleUpdate(update, env) {
 
 
     // ==================================================
-    // START
+    // /START
     // ==================================================
 
     if (text === "/start") {
-      await showMainMenu(env, chatId);
+
+      await showMainMenu(
+        env,
+        chatId
+      );
+
       return;
     }
 
 
     // ==================================================
-    // HELP
+    // /HELP
     // ==================================================
 
     if (text === "/help") {
+
       await sendMessage(
         env,
         chatId,
@@ -123,16 +133,37 @@ Use /start to open the menu.`
     // CALCULATOR
     // ==================================================
 
-    const calculation = calculate(text);
+    if (isCalculation(text)) {
 
-    if (calculation !== null) {
+      const result = calculate(text);
+
+
+      if (result !== null) {
+
+        await sendMessage(
+          env,
+          chatId,
+          `🧮 Calculator
+
+${text} = ${result}`
+        );
+
+        return;
+      }
+
 
       await sendMessage(
         env,
         chatId,
-        `🧮 Calculator
+        `❌ Invalid calculation.
 
-${text} = ${calculation}`
+Examples:
+
+65 / 5
+25 × 59
+100 + 50
+100 - 35
+(25 + 5) × 2`
       );
 
       return;
@@ -140,27 +171,36 @@ ${text} = ${calculation}`
 
 
     // ==================================================
-    // NOTE COMMANDS
+    // ADD NOTE
     // ==================================================
 
     if (text.startsWith("/note ")) {
 
-      const content = text.substring(6).trim();
+      const content = text
+        .substring(6)
+        .trim();
+
 
       if (!content) {
+
         await sendMessage(
           env,
           chatId,
-          "Usage:\n\n/note Buy milk"
+          `Usage:
+
+/note Buy milk`
         );
+
         return;
       }
+
 
       await addNote(
         env,
         user.id,
         content
       );
+
 
       await sendMessage(
         env,
@@ -173,6 +213,10 @@ ${text} = ${calculation}`
       return;
     }
 
+
+    // ==================================================
+    // LIST NOTES
+    // ==================================================
 
     if (text === "/notes") {
 
@@ -187,7 +231,46 @@ ${text} = ${calculation}`
 
 
     // ==================================================
-    // EXPENSE COMMANDS
+    // DELETE NOTE
+    // ==================================================
+
+    if (text.startsWith("/deletenote ")) {
+
+      const noteId = Number(
+        text.substring(11).trim()
+      );
+
+
+      if (
+        !Number.isInteger(noteId) ||
+        noteId <= 0
+      ) {
+
+        await sendMessage(
+          env,
+          chatId,
+          `Usage:
+
+/deletenote 5`
+        );
+
+        return;
+      }
+
+
+      await deleteNote(
+        env,
+        chatId,
+        user.id,
+        noteId
+      );
+
+      return;
+    }
+
+
+    // ==================================================
+    // ADD EXPENSE
     // ==================================================
 
     if (text.startsWith("/expense ")) {
@@ -195,6 +278,7 @@ ${text} = ${calculation}`
       const data = parseExpense(
         text.substring(9)
       );
+
 
       if (!data) {
 
@@ -237,6 +321,10 @@ or:
     }
 
 
+    // ==================================================
+    // LIST EXPENSES
+    // ==================================================
+
     if (text === "/expenses") {
 
       await showExpenses(
@@ -249,12 +337,55 @@ or:
     }
 
 
+    // ==================================================
+    // TOTAL EXPENSES
+    // ==================================================
+
     if (text === "/total") {
 
       await showExpenseTotal(
         env,
         chatId,
         user.id
+      );
+
+      return;
+    }
+
+
+    // ==================================================
+    // DELETE EXPENSE
+    // ==================================================
+
+    if (text.startsWith("/deleteexpense ")) {
+
+      const expenseId = Number(
+        text.substring(15).trim()
+      );
+
+
+      if (
+        !Number.isInteger(expenseId) ||
+        expenseId <= 0
+      ) {
+
+        await sendMessage(
+          env,
+          chatId,
+          `Usage:
+
+/deleteexpense 5`
+        );
+
+        return;
+      }
+
+
+      await deleteExpense(
+        env,
+        chatId,
+        user.id,
+        expenseId
       );
 
       return;
@@ -278,7 +409,7 @@ Use /start to open the menu.`
 
 
   // ====================================================
-  // BUTTON
+  // CALLBACK / BUTTON
   // ====================================================
 
   if (update.callback_query) {
@@ -289,6 +420,8 @@ Use /start to open the menu.`
     const chatId = callback.message.chat.id;
     const data = callback.data;
 
+
+    // Stop Telegram's loading animation
     await answerCallbackQuery(
       env,
       callbackId
@@ -300,7 +433,12 @@ Use /start to open the menu.`
     // ==================================================
 
     if (data === "main") {
-      await showMainMenu(env, chatId);
+
+      await showMainMenu(
+        env,
+        chatId
+      );
+
       return;
     }
 
@@ -349,20 +487,6 @@ Example:
     // ==================================================
 
     if (data === "list_notes") {
-
-      const user = await getUser(
-        env,
-        callback.from.id
-      );
-
-      if (!user) {
-        await sendMessage(
-          env,
-          chatId,
-          "User not found. Send /start first."
-        );
-        return;
-      }
 
       await showNotes(
         env,
@@ -502,7 +626,7 @@ Use "Expense History" first to see the ID.`
 
 
     // ==================================================
-    // CALCULATOR
+    // CALCULATOR BUTTON
     // ==================================================
 
     if (data === "calculator") {
@@ -515,13 +639,9 @@ Use "Expense History" first to see the ID.`
 Send a calculation like:
 
 25 × 59
-
-100 / 4
-
-25 + 50
-
+65 / 5
+100 + 50
 100 - 35
-
 (25 + 5) × 2`
       );
 
@@ -530,7 +650,7 @@ Send a calculation like:
 
 
     // ==================================================
-    // UNKNOWN
+    // UNKNOWN BUTTON
     // ==================================================
 
     await sendMessage(
@@ -658,6 +778,7 @@ async function addNote(
     telegramId
   );
 
+
   if (!user) {
     throw new Error("User not found");
   }
@@ -696,12 +817,15 @@ async function showNotes(
     telegramId
   );
 
+
   if (!user) {
+
     await sendMessage(
       env,
       chatId,
       "Send /start first."
     );
+
     return;
   }
 
@@ -759,7 +883,7 @@ Use:
 
 
 // ======================================================
-// DELETE NOTE COMMAND
+// DELETE NOTE
 // ======================================================
 
 async function deleteNote(
@@ -774,12 +898,15 @@ async function deleteNote(
     telegramId
   );
 
+
   if (!user) {
+
     await sendMessage(
       env,
       chatId,
       "Send /start first."
     );
+
     return;
   }
 
@@ -944,6 +1071,7 @@ async function addExpense(
     telegramId
   );
 
+
   if (!user) {
     throw new Error("User not found");
   }
@@ -986,12 +1114,15 @@ async function showExpenses(
     telegramId
   );
 
+
   if (!user) {
+
     await sendMessage(
       env,
       chatId,
       "Send /start first."
     );
+
     return;
   }
 
@@ -1071,12 +1202,15 @@ async function showExpenseTotal(
     telegramId
   );
 
+
   if (!user) {
+
     await sendMessage(
       env,
       chatId,
       "Send /start first."
     );
+
     return;
   }
 
@@ -1120,12 +1254,15 @@ async function deleteExpense(
     telegramId
   );
 
+
   if (!user) {
+
     await sendMessage(
       env,
       chatId,
       "Send /start first."
     );
+
     return;
   }
 
@@ -1184,39 +1321,66 @@ async function getUser(
 
 
 // ======================================================
+// IS CALCULATION
+// ======================================================
+
+function isCalculation(text) {
+
+  if (!text) {
+    return false;
+  }
+
+
+  const exp = text
+    .replace(/×/g, "*")
+    .replace(/÷/g, "/")
+    .replace(/,/g, ".")
+    .trim();
+
+
+  return (
+    /[0-9]/.test(exp) &&
+    /[+\-*/]/.test(exp) &&
+    /^[0-9+\-*/().\s]+$/.test(exp)
+  );
+}
+
+
+
+// ======================================================
 // CALCULATOR
 // ======================================================
 
-function calculate(expression) {
-  try {
-    if (!expression) {
-      return null;
-    }
+function calculate(
+  expression
+) {
 
-    // Convert common calculator symbols
-    let exp = expression
+  try {
+
+    const exp = expression
       .replace(/×/g, "*")
       .replace(/÷/g, "/")
       .replace(/,/g, ".")
       .trim();
 
-    // Only allow numbers, operators, decimal points,
-    // parentheses and spaces
-    if (!/^[0-9+\-*/().\s]+$/.test(exp)) {
+
+    if (
+      !/^[0-9+\-*/().\s]+$/.test(exp)
+    ) {
       return null;
     }
 
-    // Must contain at least one number
+
     if (!/[0-9]/.test(exp)) {
       return null;
     }
 
-    // Calculate
+
     const result = Function(
       `"use strict"; return (${exp})`
     )();
 
-    // Reject invalid results
+
     if (
       typeof result !== "number" ||
       !Number.isFinite(result)
@@ -1224,11 +1388,18 @@ function calculate(expression) {
       return null;
     }
 
-    // Clean floating point errors
-    return Number(result.toFixed(10));
+
+    return Number(
+      result.toFixed(10)
+    );
 
   } catch (error) {
-    console.error("Calculator error:", error);
+
+    console.error(
+      "Calculator error:",
+      error
+    );
+
     return null;
   }
 }
@@ -1236,7 +1407,7 @@ function calculate(expression) {
 
 
 // ======================================================
-// SEND MESSAGE
+// SEND TELEGRAM MESSAGE
 // ======================================================
 
 async function sendMessage(
@@ -1268,6 +1439,7 @@ async function sendMessage(
 
 
   if (!result.ok) {
+
     console.error(
       "Telegram sendMessage error:",
       result
@@ -1309,6 +1481,7 @@ async function answerCallbackQuery(
 
 
   if (!result.ok) {
+
     console.error(
       "Telegram callback error:",
       result
@@ -1317,4 +1490,4 @@ async function answerCallbackQuery(
 
 
   return result;
-                        }
+  }
